@@ -31,8 +31,8 @@
     <label>許容値: <input type="range" id="tolerance" min="10" max="150" value="50"></label>
     <label>密度: 
       <select id="density">
-        <option value="64">低 (64³)</option>
-        <option value="96" selected>中 (96³)</option>
+        <option value="64" selected>低 (64³)</option>
+        <option value="96">中 (96³)</option>
         <option value="128">高 (128³)</option>
       </select>
     </label>
@@ -61,11 +61,9 @@
     // ---------- 状態管理 ----------
     const faces = ['front', 'back', 'left', 'right', 'top', 'bottom'];
     const images = { front: null, back: null, left: null, right: null, top: null, bottom: null };
-    let generatedMesh = null;
     let textureAtlas = null;
-    let previewScene, previewCamera, previewRenderer, previewControls, previewMesh;
     let showTexture = true;
-    let currentModelScale = 1;
+    let previewRenderer = null;
 
     // ファイル入力（非表示）
     const fileInput = document.createElement('input');
@@ -102,7 +100,7 @@
     labelRenderer.setSize(window.innerWidth, window.innerHeight);
     labelRenderer.domElement.style.position = 'absolute';
     labelRenderer.domElement.style.top = '0px';
-    labelRenderer.domElement.style.pointerEvents = 'none'; // クリック貫通
+    labelRenderer.domElement.style.pointerEvents = 'none';
     document.body.appendChild(labelRenderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -110,9 +108,8 @@
 
     // 立方体メッシュ
     const cubeGeo = new THREE.BoxGeometry(1, 1, 1);
-    const cubeMat = new THREE.MeshBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.5, wireframe: false });
+    const cubeMat = new THREE.MeshBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.5 });
     const cube = new THREE.Mesh(cubeGeo, cubeMat);
-    // エッジ
     const edges = new THREE.EdgesGeometry(cubeGeo);
     const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffffff }));
     cube.add(line);
@@ -127,7 +124,6 @@
       top:    { pos: [0,0.5,0], text: '上' },
       bottom: { pos: [0,-0.5,0], text: '下' }
     };
-    const labelObjects = {};
     Object.entries(labels).forEach(([key, val]) => {
       const div = document.createElement('div');
       div.textContent = val.text;
@@ -138,7 +134,6 @@
       const label = new CSS2DObject(div);
       label.position.set(...val.pos);
       cube.add(label);
-      labelObjects[key] = label;
     });
 
     // レイキャスター（面選択）
@@ -194,7 +189,6 @@
       fileInput.value = '';
     });
 
-    // ボタンクリックでもファイル選択可能
     faces.forEach(f => {
       faceBtns[f].addEventListener('click', () => {
         pendingFace = f;
@@ -223,11 +217,19 @@
       labelRenderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    // ---------- 画像処理・モデル生成 ----------
+    // ---------- ユーティリティ ----------
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    // 進捗表示
+    function updateProgress(percent, text) {
+      progressFill.style.width = `${Math.min(100, percent)}%`;
+      progressText.textContent = text;
+    }
+
+    // ---------- 画像処理・マスク ----------
     function getMask(image, bgColor, tolerance) {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
-      // 長辺512px制限
       const maxSize = 512;
       let w = image.width, h = image.height;
       if (w > maxSize || h > maxSize) {
@@ -250,43 +252,24 @@
       return { mask, width: w, height: h, canvas };
     }
 
-    // Visual Hull (voxel carving)
-    function generateVoxelGrid(masks, size) {
+    // ---------- Visual Hull（非同期スライス処理） ----------
+    async function generateVoxelGridAsync(masks, size) {
       const grid = new Uint8Array(size*size*size);
       const s = size;
       const half = 0.5;
-      // 各方向の画像平面への投影関数（正規化座標→画像ピクセル座標）
+
       function project(point, face) {
-        let u, v, wImg, hImg;
+        let u, v;
         const maskData = masks[face];
         switch(face) {
-          case 'front': // +Z
-            u = (point.x + half) / 1.0;
-            v = (point.y + half) / 1.0;
-            break;
-          case 'back': // -Z
-            u = (-point.x + half) / 1.0; // 左右反転
-            v = (point.y + half) / 1.0;
-            break;
-          case 'left': // -X
-            u = (-point.z + half) / 1.0;
-            v = (point.y + half) / 1.0;
-            break;
-          case 'right': // +X
-            u = (point.z + half) / 1.0;
-            v = (point.y + half) / 1.0;
-            break;
-          case 'top': // +Y
-            u = (point.x + half) / 1.0;
-            v = (-point.z + half) / 1.0; // z反転?
-            break;
-          case 'bottom': // -Y
-            u = (point.x + half) / 1.0;
-            v = (point.z + half) / 1.0;
-            break;
+          case 'front': u = point.x + half; v = point.y + half; break;
+          case 'back':  u = -point.x + half; v = point.y + half; break;
+          case 'left':  u = -point.z + half; v = point.y + half; break;
+          case 'right': u = point.z + half; v = point.y + half; break;
+          case 'top':   u = point.x + half; v = -point.z + half; break;
+          case 'bottom': u = point.x + half; v = point.z + half; break;
         }
-        wImg = maskData.width;
-        hImg = maskData.height;
+        const wImg = maskData.width, hImg = maskData.height;
         const px = Math.floor(u * (wImg-1));
         const py = Math.floor(v * (hImg-1));
         if (px < 0 || px >= wImg || py < 0 || py >= hImg) return false;
@@ -307,64 +290,18 @@
             if (inside) grid[z*s*s + y*s + x] = 1;
           }
         }
-        if (z % 8 === 0) {
-          updateProgress(50 + (z/s)*20, 'Voxel carving...');
+        // スライスごとにUI更新
+        if (z % 4 === 0 || z === s-1) {
+          const progress = 50 + (z / s) * 25;
+          updateProgress(progress, `Voxel carving... ${Math.round(progress)}%`);
+          await sleep(0); // 制御を戻す
         }
       }
       return grid;
     }
 
-    // Marching Cubes (簡易実装)
-    function marchingCubes(grid, size) {
-      // 頂点テーブル、辺テーブルは簡略化のため、有名な実装を埋め込み
-      const edgeTable = new Int32Array([
-        0x0  , 0x109, 0x203, 0x30a, 0x406, 0x50f, 0x605, 0x70c,
-        0x80c, 0x905, 0xa0f, 0xb06, 0xc0a, 0xd03, 0xe09, 0xf00,
-        0x190, 0x99 , 0x393, 0x29a, 0x596, 0x49f, 0x795, 0x69c,
-        0x99c, 0x895, 0xb9f, 0xa96, 0xd9a, 0xc93, 0xf99, 0xe90,
-        0x230, 0x339, 0x33 , 0x13a, 0x636, 0x73f, 0x435, 0x53c,
-        0xa3c, 0xb35, 0x83f, 0x936, 0xe3a, 0xf33, 0xc39, 0xd30,
-        0x3a0, 0x2a9, 0x1a3, 0xaa , 0x7a6, 0x6af, 0x5a5, 0x4ac,
-        0xbac, 0xaa5, 0x9af, 0x8a6, 0xfaa, 0xea3, 0xda9, 0xca0,
-        0x460, 0x569, 0x663, 0x76a, 0x66 , 0x16f, 0x265, 0x36c,
-        0xc6c, 0xd65, 0xe6f, 0xf66, 0x86a, 0x963, 0xa69, 0xb60,
-        0x5f0, 0x4f9, 0x7f3, 0x6fa, 0x1f6, 0xff , 0x3f5, 0x2fc,
-        0xdfc, 0xcf5, 0xfff, 0xef6, 0x9fa, 0x8f3, 0xbf9, 0xaf0,
-        0x650, 0x759, 0x453, 0x55a, 0x256, 0x35f, 0x55 , 0x15c,
-        0xe5c, 0xf55, 0xc5f, 0xd56, 0xa5a, 0xb53, 0x859, 0x950,
-        0x7c0, 0x6c9, 0x5c3, 0x4ca, 0x3c6, 0x2cf, 0x1c5, 0xcc ,
-        0xfcc, 0xec5, 0xdcf, 0xcc6, 0xbca, 0xac3, 0x9c9, 0x8c0,
-        0x8c0, 0x9c9, 0xac3, 0xbca, 0xcc6, 0xdcf, 0xec5, 0xfcc,
-        0xcc , 0x1c5, 0x2cf, 0x3c6, 0x4ca, 0x5c3, 0x6c9, 0x7c0,
-        0x950, 0x859, 0xb53, 0xa5a, 0xd56, 0xc5f, 0xf55, 0xe5c,
-        0x15c, 0x55 , 0x35f, 0x256, 0x55a, 0x453, 0x759, 0x650,
-        0xaf0, 0xbf9, 0x8f3, 0x9fa, 0xef6, 0xfff, 0xcf5, 0xdfc,
-        0x2fc, 0x3f5, 0xff , 0x1f6, 0x6fa, 0x7f3, 0x4f9, 0x5f0,
-        0xb60, 0xa69, 0x963, 0x86a, 0xf66, 0xe6f, 0xd65, 0xc6c,
-        0x36c, 0x265, 0x16f, 0x66 , 0x76a, 0x663, 0x569, 0x460,
-        0xca0, 0xda9, 0xea3, 0xfaa, 0x8a6, 0x9af, 0xaa5, 0xbac,
-        0x4ac, 0x5a5, 0x6af, 0x7a6, 0xaa , 0x1a3, 0x2a9, 0x3a0,
-        0xd30, 0xc39, 0xf33, 0xe3a, 0x936, 0x83f, 0xb35, 0xa3c,
-        0x53c, 0x435, 0x73f, 0x636, 0x13a, 0x33 , 0x339, 0x230,
-        0xe90, 0xf99, 0xc93, 0xd9a, 0xa96, 0xb9f, 0x895, 0x99c,
-        0x69c, 0x795, 0x49f, 0x596, 0x29a, 0x393, 0x99 , 0x190,
-        0xf00, 0xe09, 0xd03, 0xc0a, 0xb06, 0xa0f, 0x905, 0x80c,
-        0x70c, 0x605, 0x50f, 0x406, 0x30a, 0x203, 0x109, 0x0
-      ]);
-      const triTable = [
-        [-1],
-        [0,8,3],
-        [0,1,9],
-        [1,8,3,9,8,1],
-        // ... 長大なテーブルは省略し、代表的なもののみ含める。実際は全256エントリが必要。
-        // 簡易のため、generateMeshFromGridで代替する。
-      ];
-      // 簡易化のため、別のMarching Cubes実装（頂点補間なし）を行う
-      // ここではライブラリを使わず、手軽なグリッド→サーフェス抽出を実施
-    }
-
-    // 簡易Marching Cubesの代わりに、全ボクセルの面を直接三角形化する簡易手法（キューブマーチング）を実装
-    function simpleMeshFromGrid(grid, size) {
+    // ---------- メッシュ生成（非同期スライス処理） ----------
+    async function simpleMeshFromGridAsync(grid, size) {
       const vertices = [], faces = [];
       const s = size;
       const addQuad = (v0, v1, v2, v3) => {
@@ -372,15 +309,14 @@
         vertices.push(v0, v1, v2, v3);
         faces.push([idx, idx+1, idx+2], [idx, idx+2, idx+3]);
       };
-      const eps = 0.5 / s;
-      for (let z=0; z<s; z++) {
-        for (let y=0; y<s; y++) {
-          for (let x=0; x<s; x++) {
+
+      for (let z = 0; z < s; z++) {
+        for (let y = 0; y < s; y++) {
+          for (let x = 0; x < s; x++) {
             if (!grid[z*s*s + y*s + x]) continue;
             const x0 = (x/(s-1))-0.5, y0 = (y/(s-1))-0.5, z0 = (z/(s-1))-0.5;
             const x1 = x0 + 1/(s-1), y1 = y0 + 1/(s-1), z1 = z0 + 1/(s-1);
             const c = (a,b,c) => new THREE.Vector3(a,b,c);
-            // 6面チェック
             if (x===0 || !grid[z*s*s + y*s + (x-1)]) addQuad(c(x0,y0,z0),c(x0,y1,z0),c(x0,y1,z1),c(x0,y0,z1));
             if (x===s-1 || !grid[z*s*s + y*s + (x+1)]) addQuad(c(x1,y0,z1),c(x1,y1,z1),c(x1,y1,z0),c(x1,y0,z0));
             if (y===0 || !grid[z*s*s + (y-1)*s + x]) addQuad(c(x0,y0,z1),c(x1,y0,z1),c(x1,y0,z0),c(x0,y0,z0));
@@ -389,9 +325,14 @@
             if (z===s-1 || !grid[(z+1)*s*s + y*s + x]) addQuad(c(x0,y1,z1),c(x1,y1,z1),c(x1,y0,z1),c(x0,y0,z1));
           }
         }
-        if (z%8===0) updateProgress(70 + (z/s)*20, 'メッシュ生成...');
+        if (z % 4 === 0 || z === s-1) {
+          const progress = 75 + (z / s) * 20;
+          updateProgress(progress, `メッシュ生成中... ${Math.round(progress)}%`);
+          await sleep(0);
+        }
       }
-      // 頂点最適化（重複統合）は省略
+
+      // 頂点の重複統合とジオメトリ構築
       const geo = new THREE.BufferGeometry();
       const posArray = [];
       const idxArray = [];
@@ -412,7 +353,7 @@
       return geo;
     }
 
-    // テクスチャアトラス生成とUV計算
+    // ---------- テクスチャアトラス ----------
     function createTextureAtlas(masks) {
       const atlasCanvas = document.createElement('canvas');
       const cellSize = 256;
@@ -428,8 +369,7 @@
         { face: 'bottom', col: 2, row: 1 }
       ];
       layout.forEach(({face, col, row}) => {
-        const img = masks[face].canvas;
-        ctx.drawImage(img, col*cellSize, row*cellSize, cellSize, cellSize);
+        ctx.drawImage(masks[face].canvas, col*cellSize, row*cellSize, cellSize, cellSize);
       });
       const texture = new THREE.CanvasTexture(atlasCanvas);
       texture.needsUpdate = true;
@@ -440,14 +380,10 @@
       const pos = geometry.attributes.position;
       const normals = geometry.attributes.normal;
       const uvArray = new Float32Array(pos.count * 2);
-      // 各頂点の法線から最も近い方向を決定
       const dirs = {
-        front:  new THREE.Vector3( 0, 0, 1),
-        back:   new THREE.Vector3( 0, 0,-1),
-        left:   new THREE.Vector3(-1, 0, 0),
-        right:  new THREE.Vector3( 1, 0, 0),
-        top:    new THREE.Vector3( 0, 1, 0),
-        bottom: new THREE.Vector3( 0,-1, 0)
+        front: new THREE.Vector3(0,0,1), back: new THREE.Vector3(0,0,-1),
+        left: new THREE.Vector3(-1,0,0), right: new THREE.Vector3(1,0,0),
+        top: new THREE.Vector3(0,1,0), bottom: new THREE.Vector3(0,-1,0)
       };
       const faceInfo = {};
       layout.forEach(l => { faceInfo[l.face] = l; });
@@ -461,7 +397,6 @@
         });
         const info = faceInfo[bestFace];
         const vert = new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i));
-        // 投影
         let u, v;
         switch(bestFace) {
           case 'front': u = vert.x+0.5; v = vert.y+0.5; break;
@@ -469,23 +404,17 @@
           case 'left':  u = 1-(vert.z+0.5); v = vert.y+0.5; break;
           case 'right': u = vert.z+0.5; v = vert.y+0.5; break;
           case 'top':   u = vert.x+0.5; v = 1-(vert.z+0.5); break;
-          case 'bottom':u = vert.x+0.5; v = vert.z+0.5; break;
+          case 'bottom': u = vert.x+0.5; v = vert.z+0.5; break;
         }
         u = Math.max(0, Math.min(1, u));
         v = Math.max(0, Math.min(1, v));
         uvArray[i*2]   = (info.col + u) / 3;
-        uvArray[i*2+1] = 1 - (info.row + v) / 2; // flip Y
+        uvArray[i*2+1] = 1 - (info.row + v) / 2;
       }
       geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvArray, 2));
     }
 
-    // 進捗表示
-    function updateProgress(percent, text) {
-      progressFill.style.width = `${Math.min(100, percent)}%`;
-      progressText.textContent = text;
-    }
-
-    // 生成処理全体
+    // ---------- 生成処理全体 ----------
     generateBtn.addEventListener('click', async () => {
       if (!faces.every(f => images[f])) return;
       uiPanel.style.display = 'none';
@@ -496,7 +425,7 @@
       const tolerance = parseInt(toleranceSlider.value);
       const density = parseInt(densitySelect.value);
 
-      // 1. マスク生成
+      // マスク生成
       const masks = {};
       for (const f of faces) {
         updateProgress(10 + faces.indexOf(f)*5, `${f} マスク生成中`);
@@ -504,23 +433,22 @@
         masks[f] = getMask(images[f], bgColor, tolerance);
       }
 
-      // 2. Visual Hull
+      // Visual Hull
       updateProgress(40, '立体形状生成中 (Voxel Carving)');
       await sleep(10);
-      const grid = generateVoxelGrid(masks, density);
+      const grid = await generateVoxelGridAsync(masks, density);
 
-      // 3. メッシュ生成
+      // メッシュ生成
       updateProgress(70, 'メッシュ生成中');
-      await sleep(10);
-      const geometry = simpleMeshFromGrid(grid, density);
+      const geometry = await simpleMeshFromGridAsync(grid, density);
 
-      // 4. テクスチャ
+      // テクスチャ
       updateProgress(90, 'テクスチャ生成中');
       const atlas = createTextureAtlas(masks);
       assignUVs(geometry, atlas.layout, atlas.cellSize);
       textureAtlas = atlas.texture;
 
-      // 5. スケーリング (最長辺300mm, Z底面=0)
+      // スケーリング
       geometry.computeBoundingBox();
       const bbox = geometry.boundingBox;
       const size = new THREE.Vector3();
@@ -528,50 +456,48 @@
       const maxDim = Math.max(size.x, size.y, size.z);
       const scale = 300 / maxDim;
       geometry.scale(scale, scale, scale);
-      // Z底面を0に
       geometry.computeBoundingBox();
       const minZ = geometry.boundingBox.min.z;
       geometry.translate(0, 0, -minZ);
-      currentModelScale = scale;
 
-      // 6. プレビューに表示
+      // プレビュー表示
       showPreview(geometry, atlas.texture);
       progressContainer.style.display = 'none';
     });
 
+    // ---------- プレビュー ----------
     function showPreview(geometry, texture) {
       if (previewRenderer) {
         previewRenderer.dispose();
         document.body.removeChild(previewRenderer.domElement);
       }
-      previewScene = new THREE.Scene();
+      const previewScene = new THREE.Scene();
       previewScene.background = new THREE.Color(0x333333);
-      previewCamera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
+      const previewCamera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
       previewCamera.position.set(200, 200, 300);
       previewRenderer = new THREE.WebGLRenderer({ antialias: true });
       previewRenderer.setSize(window.innerWidth, window.innerHeight);
       document.body.appendChild(previewRenderer.domElement);
-      previewControls = new OrbitControls(previewCamera, previewRenderer.domElement);
+      const previewControls = new OrbitControls(previewCamera, previewRenderer.domElement);
 
       const mat = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.5, metalness: 0.1 });
-      previewMesh = new THREE.Mesh(geometry, mat);
-      previewScene.add(previewMesh);
-      const light = new THREE.DirectionalLight(0xffffff, 0.8);
-      light.position.set(1,1,1);
-      previewScene.add(light);
+      const mesh = new THREE.Mesh(geometry, mat);
+      previewScene.add(mesh);
+      previewScene.add(new THREE.DirectionalLight(0xffffff, 0.8));
       previewScene.add(new THREE.AmbientLight(0x444444));
 
       previewUi.style.display = 'block';
       document.getElementById('toggle-texture').onclick = () => {
         showTexture = !showTexture;
-        previewMesh.material.map = showTexture ? texture : null;
-        previewMesh.material.needsUpdate = true;
+        mesh.material.map = showTexture ? texture : null;
+        mesh.material.needsUpdate = true;
       };
       document.getElementById('save-obj').onclick = () => exportOBJ(geometry);
       document.getElementById('save-stl').onclick = () => exportSTL(geometry);
       document.getElementById('back-btn').onclick = () => {
         previewRenderer.dispose();
         document.body.removeChild(previewRenderer.domElement);
+        previewRenderer = null;
         previewUi.style.display = 'none';
         uiPanel.style.display = 'block';
       };
@@ -585,13 +511,13 @@
       animatePreview();
     }
 
-    // エクスポート
+    // ---------- エクスポート ----------
     function exportOBJ(geometry) {
       const pos = geometry.attributes.position;
       const uv = geometry.attributes.uv;
       const norm = geometry.attributes.normal;
       const index = geometry.index;
-      let obj = '# OBJ exported\n';
+      let obj = '# OBJ\n';
       for (let i=0; i<pos.count; i++) obj += `v ${pos.getX(i)} ${pos.getY(i)} ${pos.getZ(i)}\n`;
       for (let i=0; i<uv.count; i++) obj += `vt ${uv.getX(i)} ${uv.getY(i)}\n`;
       for (let i=0; i<norm.count; i++) obj += `vn ${norm.getX(i)} ${norm.getY(i)} ${norm.getZ(i)}\n`;
@@ -599,15 +525,14 @@
         const a=index.getX(i)+1, b=index.getX(i+1)+1, c=index.getX(i+2)+1;
         obj += `f ${a}/${a}/${a} ${b}/${b}/${b} ${c}/${c}/${c}\n`;
       }
-      downloadFile('model.obj', obj);
-      // MTL
-      const mtl = `newmtl material0\nmap_Kd model_texture.png\n`;
-      downloadFile('model.mtl', mtl);
-      // Texture
+      download('model.obj', obj);
+      const mtl = 'newmtl material0\nmap_Kd model_texture.png\n';
+      download('model.mtl', mtl);
+      // テクスチャ画像の保存
       const canvas = document.createElement('canvas');
       canvas.width = textureAtlas.image.width;
       canvas.height = textureAtlas.image.height;
-      canvas.getContext('2d').drawImage(textureAtlas.image, 0,0);
+      canvas.getContext('2d').drawImage(textureAtlas.image, 0, 0);
       canvas.toBlob(blob => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -629,18 +554,17 @@
         stl += `endloop\nendfacet\n`;
       }
       stl += 'endsolid model\n';
-      downloadFile('model.stl', stl);
+      download('model.stl', stl);
     }
 
-    function downloadFile(filename, text) {
+    function download(filename, text) {
       const blob = new Blob([text], {type: 'text/plain'});
-      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = filename; a.click();
-      URL.revokeObjectURL(url);
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
     }
-
-    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
   </script>
 </body>
 </html>
