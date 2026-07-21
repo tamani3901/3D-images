@@ -1,317 +1,394 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DeLorean Time Machine 3D Viewer & STL Export</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background-color: #12131C;
-      color: #E2E8F0;
-      overflow: hidden;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
-    header {
-      background: rgba(22, 27, 34, 0.95);
-      backdrop-filter: blur(10px);
-      border-bottom: 1px solid #30363D;
-      padding: 12px 24px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      z-index: 100;
-    }
-    .title-container {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .badge {
-      background: #00F0FF;
-      color: #0A0E17;
-      font-weight: bold;
-      font-size: 11px;
-      padding: 3px 8px;
-      border-radius: 12px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-    h1 {
-      font-size: 18px;
-      font-weight: 600;
-      color: #F0F6FC;
-    }
-    .controls-bar {
-      display: flex;
-      gap: 12px;
-    }
-    .btn {
-      padding: 8px 16px;
-      border-radius: 6px;
-      font-weight: 600;
-      font-size: 13px;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      border: none;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .btn-primary {
-      background: linear-gradient(135deg, #00F0FF, #0072FF);
-      color: #FFFFFF;
-      box-shadow: 0 0 15px rgba(0, 240, 255, 0.3);
-    }
-    .btn-primary:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 0 20px rgba(0, 240, 255, 0.5);
-    }
-    .btn-secondary {
-      background: #21262D;
-      color: #C9D1D9;
-      border: 1px solid #30363D;
-    }
-    .btn-secondary:hover {
-      background: #30363D;
-      color: #FFFFFF;
-    }
-    #canvas-container {
-      flex: 1;
-      width: 100%;
-      height: 100%;
-      position: relative;
-    }
-    .info-overlay {
-      position: absolute;
-      bottom: 20px;
-      left: 20px;
-      background: rgba(15, 23, 42, 0.85);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      padding: 16px 20px;
-      border-radius: 10px;
-      font-size: 12px;
-      line-height: 1.6;
-      backdrop-filter: blur(8px);
-      max-width: 320px;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-    }
-    .info-title {
-      font-weight: 700;
-      color: #00F0FF;
-      margin-bottom: 6px;
-      font-size: 14px;
-    }
-  </style>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/STLExporter.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>レトロSF タイムトラベルカー ジェネレーター</title>
+<style>
+  html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden;
+    background: radial-gradient(circle at 50% 30%, #5a5f66 0%, #2c2f33 60%, #1a1c1e 100%);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+  }
+  #canvas-wrap { position:absolute; inset:0; }
+  canvas { display:block; }
+
+  #panel {
+    position:absolute; top:16px; left:16px; z-index:10;
+    background: rgba(20,22,24,0.78);
+    backdrop-filter: blur(6px);
+    border: 1px solid rgba(120,255,240,0.25);
+    border-radius: 12px;
+    padding: 16px 18px;
+    color: #e8f7f5;
+    max-width: 300px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  #panel h1 {
+    font-size: 15px;
+    margin: 0 0 4px 0;
+    letter-spacing: 0.02em;
+    color: #7cf5e6;
+  }
+  #panel p {
+    font-size: 12px;
+    line-height: 1.6;
+    color: #b9c4c2;
+    margin: 0 0 12px 0;
+  }
+  .btn-row { display:flex; flex-direction:column; gap:8px; }
+  button {
+    font-size: 13px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(124,245,230,0.4);
+    background: linear-gradient(180deg, rgba(124,245,230,0.16), rgba(124,245,230,0.04));
+    color: #eafffa;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.1s ease;
+  }
+  button:hover { background: rgba(124,245,230,0.28); }
+  button:active { transform: scale(0.97); }
+
+  #toggleRow {
+    margin-top: 12px;
+    display:flex;
+    align-items:center;
+    gap: 8px;
+    font-size: 12px;
+    color:#b9c4c2;
+  }
+  #status {
+    margin-top: 10px;
+    font-size: 11px;
+    color: #7cf5e6;
+    min-height: 14px;
+  }
+</style>
 </head>
 <body>
-  <header>
-    <div class="title-container">
-      <span class="badge">3D Model</span>
-      <h1>DeLorean DMC-12 Time Machine</h1>
-    </div>
-    <div class="controls-bar">
-      <button class="btn btn-secondary" onclick="resetCamera()">視点をリセット</button>
-      <button class="btn btn-primary" onclick="downloadSTL()">STLファイルを保存</button>
-    </div>
-  </header>
 
-  <div id="canvas-container">
-    <div class="info-overlay">
-      <div class="info-title">デロリアン 3Dデータ概要</div>
-      <div>• 3Dプリンター (STL) 対応メッシュモデル</div>
-      <div>• 特徴: タイムマシンリアダクト、Mr.Fusion、サイドバンド、バンパーライト</div>
-      <div>• 操作: マウスドラッグで回転、ホイールで拡大/縮小</div>
-    </div>
+<div id="canvas-wrap"></div>
+
+<div id="panel">
+  <h1>RETRO TIME-TRAVEL CAR — オリジナル 3Dモデル</h1>
+  <p>参考画像の意匠（版権のあるタイムマシン改造車）はそのまま複製せず、同じ「レトロ近未来×タイムトラベル装備」のコンセプトでゼロから作ったオリジナルデザインです。ドラッグで回転、スクロールでズームできます。</p>
+  <div class="btn-row">
+    <button id="btnGLB">GLB形式でダウンロード（Web/ゲームエンジン向け）</button>
+    <button id="btnOBJ">OBJ形式でダウンロード（汎用3Dソフト向け）</button>
+    <button id="btnSTL">STL形式でダウンロード（3Dプリント向け）</button>
   </div>
+  <div id="toggleRow">
+    <input type="checkbox" id="autoRotate" checked>
+    <label for="autoRotate">自動回転</label>
+  </div>
+  <div id="status"></div>
+</div>
 
-  <script>
-    let scene, camera, renderer, controls, carGroup;
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/OBJExporter.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/STLExporter.js"></script>
 
-    function init() {
-      const container = document.getElementById('canvas-container');
+<script>
+(function(){
+  const wrap = document.getElementById('canvas-wrap');
+  const statusEl = document.getElementById('status');
 
-      // Scene Setup
-      scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x12131C);
-      scene.fog = new THREE.FogExp2(0x12131C, 0.002);
+  // ---------- Renderer / Scene / Camera ----------
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  wrap.appendChild(renderer.domElement);
 
-      // Camera Setup
-      camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 1, 1000);
-      camera.position.set(180, 120, 220);
+  const scene = new THREE.Scene();
 
-      // Renderer Setup
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setSize(container.clientWidth, container.clientHeight);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-      container.appendChild(renderer.domElement);
+  const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 100);
+  camera.position.set(6.2, 3.1, 6.8);
 
-      // Orbit Controls
-      controls = new THREE.OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true;
-      controls.dampingFactor = 0.05;
-      controls.maxPolarAngle = Math.PI / 2 + 0.05;
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 0.65, 0);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.minDistance = 3;
+  controls.maxDistance = 20;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 3.2;
 
-      // Lights
-      const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-      scene.add(ambientLight);
+  document.getElementById('autoRotate').addEventListener('change', (e) => {
+    controls.autoRotate = e.target.checked;
+  });
 
-      const mainLight = new THREE.DirectionalLight(0xffffff, 1.2);
-      mainLight.position.set(150, 250, 150);
-      mainLight.castShadow = true;
-      scene.add(mainLight);
+  // ---------- Lighting ----------
+  scene.add(new THREE.HemisphereLight(0xbfd6da, 0x1a1c1e, 0.7));
+  const keyLight = new THREE.DirectionalLight(0xffffff, 1.1);
+  keyLight.position.set(5, 8, 4);
+  scene.add(keyLight);
+  const rimLight = new THREE.DirectionalLight(0x7cf5e6, 0.5);
+  rimLight.position.set(-6, 3, -5);
+  scene.add(rimLight);
+  scene.add(new THREE.AmbientLight(0x404040, 0.4));
 
-      const rimLight = new THREE.DirectionalLight(0x00f0ff, 0.8);
-      rimLight.position.set(-150, 100, -150);
-      scene.add(rimLight);
+  // ---------- Floor ----------
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0x2a2d30, roughness: 0.95, metalness: 0.0 });
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(14, 48), floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = -0.001;
+  scene.add(floor);
+  const grid = new THREE.GridHelper(28, 28, 0x4a5458, 0x33383b);
+  scene.add(grid);
 
-      // Grid Floor
-      const gridHelper = new THREE.GridHelper(400, 40, 0x00f0ff, 0x30363D);
-      gridHelper.position.y = 0;
-      scene.add(gridHelper);
+  // ---------- Materials ----------
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xcfd2d6, metalness: 0.75, roughness: 0.28 });
+  const darkTrimMat = new THREE.MeshStandardMaterial({ color: 0x131416, metalness: 0.3, roughness: 0.55 });
+  const glassMat = new THREE.MeshPhysicalMaterial({ color: 0x1c2a30, metalness: 0.1, roughness: 0.05, transparent: true, opacity: 0.45, transmission: 0.3 });
+  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x0d0d0d, roughness: 0.9, metalness: 0.1 });
+  const hubMat = new THREE.MeshStandardMaterial({ color: 0xd8dadd, metalness: 0.8, roughness: 0.3 });
+  const glowCyanMat = new THREE.MeshStandardMaterial({ color: 0x0e2a29, emissive: 0x6dfff0, emissiveIntensity: 1.6, roughness: 0.4 });
+  const glowAmberMat = new THREE.MeshStandardMaterial({ color: 0x2a1a08, emissive: 0xffa64d, emissiveIntensity: 1.2, roughness: 0.4 });
+  const ventMat = new THREE.MeshStandardMaterial({ color: 0x3a3d40, metalness: 0.6, roughness: 0.4 });
 
-      // Build DeLorean 3D Model
-      buildDeLorean();
+  // ---------- Car root group (this is what gets exported) ----------
+  const car = new THREE.Group();
+  car.name = "RetroTimeTravelCar";
+  scene.add(car);
 
-      window.addEventListener('resize', onWindowResize);
-      animate();
-    }
+  const CAR_WIDTH = 1.9;
 
-    function buildDeLorean() {
-      carGroup = new THREE.Group();
+  // Main body: wedge silhouette, drawn in XY, extruded along Z (width)
+  function makeBodyShape() {
+    const s = new THREE.Shape();
+    s.moveTo(-2.15, 0.16);
+    s.lineTo(-2.20, 0.55);
+    s.lineTo(-1.85, 0.62);
+    s.lineTo(-1.35, 0.78);
+    s.lineTo(-1.05, 0.95);
+    s.lineTo(-0.55, 1.14);
+    s.lineTo(0.35, 1.14);
+    s.lineTo(0.85, 0.92);
+    s.lineTo(1.15, 0.72);
+    s.lineTo(1.65, 0.58);
+    s.lineTo(2.10, 0.50);
+    s.lineTo(2.18, 0.16);
+    s.lineTo(2.18, 0.10);
+    s.lineTo(-2.15, 0.10);
+    s.lineTo(-2.15, 0.16);
+    return s;
+  }
 
-      // Materials
-      const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x9e9e9e, metalness: 0.8, roughness: 0.3 });
-      const darkMaterial = new THREE.MeshStandardMaterial({ color: 0x1f2421, metalness: 0.5, roughness: 0.6 });
-      const cyanGlowMaterial = new THREE.MeshStandardMaterial({ color: 0x00f0ff, emissive: 0x00f0ff, emissiveIntensity: 0.8, roughness: 0.2 });
-      const whiteMaterial = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, roughness: 0.4 });
-      const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 });
-      const rimMaterial = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.2 });
+  const bodyGeo = new THREE.ExtrudeGeometry(makeBodyShape(), { depth: CAR_WIDTH, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 2 });
+  bodyGeo.translate(0, 0, -CAR_WIDTH / 2);
+  const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+  car.add(bodyMesh);
 
-      // 1. Lower Body & Hood
-      const lowerBody = new THREE.Mesh(new THREE.BoxGeometry(92, 18, 220), bodyMaterial);
-      lowerBody.position.set(0, 17, 0);
-      carGroup.add(lowerBody);
+  // Lower rocker / skirt trim
+  function makeSkirtShape() {
+    const s = new THREE.Shape();
+    s.moveTo(-2.05, 0.10);
+    s.lineTo(2.08, 0.10);
+    s.lineTo(2.08, 0.02);
+    s.lineTo(-2.05, 0.02);
+    s.lineTo(-2.05, 0.10);
+    return s;
+  }
+  const skirtGeo = new THREE.ExtrudeGeometry(makeSkirtShape(), { depth: CAR_WIDTH + 0.04, bevelEnabled: false });
+  skirtGeo.translate(0, 0, -(CAR_WIDTH + 0.04) / 2);
+  car.add(new THREE.Mesh(skirtGeo, darkTrimMat));
 
-      // Slanted Front Hood
-      const hoodGeo = new THREE.BoxGeometry(90, 12, 85);
-      const hood = new THREE.Mesh(hoodGeo, bodyMaterial);
-      hood.position.set(0, 24, -65);
-      hood.rotation.x = 0.08;
-      carGroup.add(hood);
+  // Glass canopy band
+  function makeGlassShape() {
+    const s = new THREE.Shape();
+    s.moveTo(-1.02, 0.94);
+    s.lineTo(-0.52, 1.11);
+    s.lineTo(0.32, 1.11);
+    s.lineTo(0.80, 0.91);
+    s.lineTo(0.60, 0.85);
+    s.lineTo(0.28, 1.00);
+    s.lineTo(-0.48, 1.00);
+    s.lineTo(-0.86, 0.86);
+    s.lineTo(-1.02, 0.94);
+    return s;
+  }
+  const glassGeo = new THREE.ExtrudeGeometry(makeGlassShape(), { depth: CAR_WIDTH - 0.06, bevelEnabled: false });
+  glassGeo.translate(0, 0.01, -(CAR_WIDTH - 0.06) / 2);
+  car.add(new THREE.Mesh(glassGeo, glassMat));
 
-      // 2. Cockpit / Roof / Windshield
-      const cabinGeo = new THREE.BoxGeometry(86, 22, 70);
-      const cabin = new THREE.Mesh(cabinGeo, bodyMaterial);
-      cabin.position.set(0, 36, 5);
-      carGroup.add(cabin);
+  // ---------- Wheels ----------
+  function buildWheel(x, z) {
+    const g = new THREE.Group();
+    const radius = 0.34, thickness = 0.24;
+    const tireGeo = new THREE.CylinderGeometry(radius, radius, thickness, 20);
+    tireGeo.rotateX(Math.PI / 2);
+    const tire = new THREE.Mesh(tireGeo, wheelMat);
+    g.add(tire);
+    const hubGeo = new THREE.CylinderGeometry(radius * 0.6, radius * 0.6, thickness + 0.02, 8);
+    hubGeo.rotateX(Math.PI / 2);
+    const hub = new THREE.Mesh(hubGeo, hubMat);
+    g.add(hub);
+    g.position.set(x, radius, z);
+    return g;
+  }
+  const wheelZ = CAR_WIDTH / 2 + 0.02;
+  car.add(buildWheel(-1.45, wheelZ));
+  car.add(buildWheel(-1.45, -wheelZ));
+  car.add(buildWheel(1.5, wheelZ));
+  car.add(buildWheel(1.5, -wheelZ));
 
-      // Windshield (Dark Glass)
-      const windshieldGeo = new THREE.BoxGeometry(82, 18, 25);
-      const windshield = new THREE.Mesh(windshieldGeo, darkMaterial);
-      windshield.position.set(0, 38, -25);
-      windshield.rotation.x = -0.5;
-      carGroup.add(windshield);
+  // ---------- Front glow strip + headlights ----------
+  const frontStripGeo = new THREE.BoxGeometry(0.06, 0.09, 1.5);
+  const frontStrip = new THREE.Mesh(frontStripGeo, glowCyanMat);
+  frontStrip.position.set(2.19, 0.42, 0);
+  car.add(frontStrip);
 
-      // 3. Rear Engine Deck & Exhaust Vents
-      const rearDeck = new THREE.Mesh(new THREE.BoxGeometry(90, 12, 70), darkMaterial);
-      rearDeck.position.set(0, 32, 70);
-      carGroup.add(rearDeck);
+  [-0.55, -0.2, 0.2, 0.55].forEach((zOff) => {
+    const hl = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.12, 0.14), hubMat);
+    hl.position.set(2.20, 0.62, zOff);
+    car.add(hl);
+  });
 
-      // Left Thruster Vent
-      const leftVent = new THREE.Mesh(new THREE.BoxGeometry(37, 30, 38), darkMaterial);
-      leftVent.position.set(-23, 53, 88);
-      carGroup.add(leftVent);
+  // ---------- Rear light bar ----------
+  const rearBarGeo = new THREE.BoxGeometry(0.06, 0.14, 1.6);
+  const rearBar = new THREE.Mesh(rearBarGeo, glowAmberMat);
+  rearBar.position.set(-2.19, 0.5, 0);
+  car.add(rearBar);
 
-      // Right Thruster Vent
-      const rightVent = new THREE.Mesh(new THREE.BoxGeometry(37, 30, 38), darkMaterial);
-      rightVent.position.set(23, 53, 88);
-      carGroup.add(rightVent);
+  // rear plate (generic, non-trademarked text)
+  const plateCanvas = document.createElement('canvas');
+  plateCanvas.width = 256; plateCanvas.height = 64;
+  const ctx = plateCanvas.getContext('2d');
+  ctx.fillStyle = '#101214'; ctx.fillRect(0, 0, 256, 64);
+  ctx.fillStyle = '#7cf5e6'; ctx.font = 'bold 28px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('PROTO-01', 128, 34);
+  const plateTex = new THREE.CanvasTexture(plateCanvas);
+  const plateMat = new THREE.MeshStandardMaterial({ map: plateTex, emissive: 0x113330, emissiveMap: plateTex, emissiveIntensity: 0.6 });
+  const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.14), plateMat);
+  plate.position.set(-2.205, 0.32, 0);
+  plate.rotation.y = Math.PI / 2;
+  car.add(plate);
 
-      // Mr. Fusion
-      const fusionBase = new THREE.Mesh(new THREE.BoxGeometry(24, 10, 24), whiteMaterial);
-      fusionBase.position.set(0, 43, 56);
-      carGroup.add(fusionBase);
+  // ---------- Rear "temporal reactor" cluster (original design, not a flux-capacitor copy) ----------
+  const reactor = new THREE.Group();
+  const coreGeo = new THREE.CylinderGeometry(0.22, 0.26, 0.5, 6);
+  const core = new THREE.Mesh(coreGeo, ventMat);
+  core.position.set(0, 0.25, 0);
+  reactor.add(core);
+  const ringGeo = new THREE.TorusGeometry(0.24, 0.035, 10, 24);
+  const ring = new THREE.Mesh(ringGeo, glowCyanMat);
+  ring.position.set(0, 0.55, 0);
+  ring.rotation.x = Math.PI / 2;
+  reactor.add(ring);
+  const capGeo = new THREE.SphereGeometry(0.09, 12, 12);
+  const cap = new THREE.Mesh(capGeo, glowCyanMat);
+  cap.position.set(0, 0.72, 0);
+  reactor.add(cap);
+  // asymmetric side vent box, off-center to avoid mirroring known designs
+  const ventBox = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.34, 0.22), ventMat);
+  ventBox.position.set(-0.05, 0.2, 0.5);
+  reactor.add(ventBox);
+  for (let i = 0; i < 3; i++) {
+    const slat = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.03, 0.02), darkTrimMat);
+    slat.position.set(-0.05, 0.1 + i * 0.09, 0.62);
+    reactor.add(slat);
+  }
+  reactor.position.set(-1.55, 0.62, 0);
+  car.add(reactor);
 
-      const fusionCylinder = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 18, 16), whiteMaterial);
-      fusionCylinder.position.set(0, 56, 56);
-      carGroup.add(fusionCylinder);
+  // ---------- Side energy conduit (stylized tube, distinct path) ----------
+  function buildConduit(zSide) {
+    const pts = [
+      new THREE.Vector3(-1.9, 0.5, zSide),
+      new THREE.Vector3(-1.55, 0.95, zSide),
+      new THREE.Vector3(-0.6, 1.22, zSide),
+      new THREE.Vector3(0.6, 1.22, zSide),
+      new THREE.Vector3(1.35, 0.85, zSide),
+      new THREE.Vector3(1.9, 0.55, zSide),
+      new THREE.Vector3(2.15, 0.45, zSide * 0.55),
+    ];
+    const curve = new THREE.CatmullRomCurve3(pts);
+    const tubeGeo = new THREE.TubeGeometry(curve, 48, 0.045, 8, false);
+    return new THREE.Mesh(tubeGeo, glowCyanMat);
+  }
+  car.add(buildConduit(CAR_WIDTH / 2 + 0.06));
+  car.add(buildConduit(-(CAR_WIDTH / 2 + 0.06)));
 
-      // 4. Side Flux Conduits & Bumpers (Glow Cyan)
-      const leftConduit = new THREE.Mesh(new THREE.BoxGeometry(4, 5, 202), cyanGlowMaterial);
-      leftConduit.position.set(-47, 26, 1);
-      carGroup.add(leftConduit);
+  // ---------- Roof sensor pod ----------
+  const podGroup = new THREE.Group();
+  const podBase = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.12, 12), hubMat);
+  podGroup.add(podBase);
+  const podHead = new THREE.Mesh(new THREE.SphereGeometry(0.1, 14, 14), glowAmberMat);
+  podHead.position.y = 0.16;
+  podGroup.add(podHead);
+  podGroup.position.set(-0.1, 1.24, 0);
+  car.add(podGroup);
 
-      const rightConduit = new THREE.Mesh(new THREE.BoxGeometry(4, 5, 202), cyanGlowMaterial);
-      rightConduit.position.set(47, 26, 1);
-      carGroup.add(rightConduit);
+  // Center exhaust vents on rear deck (small, generic greeble)
+  for (let i = -1; i <= 1; i += 2) {
+    const vent = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.05, 0.5), ventMat);
+    vent.position.set(-1.55, 0.85, i * 0.55);
+    car.add(vent);
+  }
 
-      // Front Bumper Energy Strip
-      const frontBumper = new THREE.Mesh(new THREE.BoxGeometry(94, 6, 4), cyanGlowMaterial);
-      frontBumper.position.set(0, 18, -112);
-      carGroup.add(frontBumper);
+  car.position.y = 0.02;
 
-      // 5. Four Wheels
-      const wheelPositions = [
-        [-46, 16, -65], [46, 16, -65],
-        [-46, 17, 65],  [46, 17, 65]
-      ];
+  // ---------- Resize ----------
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
 
-      wheelPositions.forEach(pos => {
-        const wheelGroup = new THREE.Group();
-        const tire = new THREE.Mesh(new THREE.CylinderGeometry(16, 16, 14, 24), wheelMaterial);
-        tire.rotation.z = Math.PI / 2;
-        wheelGroup.add(tire);
+  // ---------- Animate ----------
+  function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
 
-        const rim = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 15, 16), rimMaterial);
-        rim.rotation.z = Math.PI / 2;
-        wheelGroup.add(rim);
+  // ---------- Export helpers ----------
+  const downloadLink = document.createElement('a');
+  downloadLink.style.display = 'none';
+  document.body.appendChild(downloadLink);
 
-        wheelGroup.position.set(pos[0], pos[1], pos[2]);
-        carGroup.add(wheelGroup);
-      });
+  function saveBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    downloadLink.href = url;
+    downloadLink.download = filename;
+    downloadLink.click();
+    URL.revokeObjectURL(url);
+    statusEl.textContent = filename + ' をダウンロードしました';
+  }
 
-      scene.add(carGroup);
-    }
+  document.getElementById('btnGLB').addEventListener('click', () => {
+    const exporter = new THREE.GLTFExporter();
+    exporter.parse(
+      car,
+      (result) => {
+        if (result instanceof ArrayBuffer) {
+          saveBlob(new Blob([result], { type: 'application/octet-stream' }), 'time-travel-car.glb');
+        } else {
+          saveBlob(new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' }), 'time-travel-car.gltf');
+        }
+      },
+      (err) => { statusEl.textContent = 'GLBエクスポートに失敗しました'; console.error(err); },
+      { binary: true }
+    );
+  });
 
-    function animate() {
-      requestAnimationFrame(animate);
-      controls.update();
-      renderer.render(scene, camera);
-    }
+  document.getElementById('btnOBJ').addEventListener('click', () => {
+    const exporter = new THREE.OBJExporter();
+    const result = exporter.parse(car);
+    saveBlob(new Blob([result], { type: 'text/plain' }), 'time-travel-car.obj');
+  });
 
-    function onWindowResize() {
-      const container = document.getElementById('canvas-container');
-      camera.aspect = container.clientWidth / container.clientHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(container.clientWidth, container.clientHeight);
-    }
-
-    function resetCamera() {
-      camera.position.set(180, 120, 220);
-      controls.target.set(0, 20, 0);
-      controls.update();
-    }
-
-    function downloadSTL() {
-      const exporter = new THREE.STLExporter();
-      const result = exporter.parse(carGroup, { binary: true });
-      const blob = new Blob([result], { type: 'application/octet-stream' } );
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = 'delorean_time_machine.stl';
-      link.click();
-    }
-
-    init();
-  </script>
+  document.getElementById('btnSTL').addEventListener('click', () => {
+    const exporter = new THREE.STLExporter();
+    const result = exporter.parse(car, { binary: false });
+    saveBlob(new Blob([result], { type: 'text/plain' }), 'time-travel-car.stl');
+  });
+})();
+</script>
 </body>
 </html>
